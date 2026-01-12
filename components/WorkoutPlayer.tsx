@@ -290,6 +290,8 @@ const WorkoutPlayer = () => {
     const [activeCycle, setActiveCycle] = useState(1);
     const [activeSessionIdx, setActiveSessionIdx] = useState(0);
     const [isExpressMode, setIsExpressMode] = useState(false);
+    const [isOptimizing, setIsOptimizing] = useState(false);
+    const [expressSession, setExpressSession] = useState<any>(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
     const [showProgramManager, setShowProgramManager] = useState(false);
@@ -304,6 +306,40 @@ const WorkoutPlayer = () => {
     const [user, setUser] = useState<User | null>(null);
 
     const supabase = createClient();
+
+    // Handle Express Mode Toggle with AI Optimization
+    const handleExpressToggle = async () => {
+        if (isExpressMode) {
+            // Turn OFF express mode - restore original session
+            setIsExpressMode(false);
+            setExpressSession(null);
+            return;
+        }
+
+        // Turn ON express mode - call AI to optimize
+        setIsOptimizing(true);
+        try {
+            const res = await fetch('/api/optimize-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session: currentSession }),
+            });
+
+            if (res.ok) {
+                const optimized = await res.json();
+                setExpressSession(optimized);
+                setIsExpressMode(true);
+            } else {
+                console.error('Optimization failed, using static fallback');
+                setIsExpressMode(true); // Fallback to static mode
+            }
+        } catch (error) {
+            console.error('Express optimization error:', error);
+            setIsExpressMode(true); // Fallback to static mode
+        } finally {
+            setIsOptimizing(false);
+        }
+    };
 
     // Load imported program from Supabase and merge it as Cycle 5 (or import)
     useEffect(() => {
@@ -416,7 +452,15 @@ const WorkoutPlayer = () => {
 
     const currentCycle = fullData[activeCycle] || fullData[1];
     const currentSession = currentCycle?.sessions[activeSessionIdx] || currentCycle.sessions[0];
-    const displayedExercises = useMemo(() => getAdjustedExercises(currentSession.exercises, isExpressMode), [currentSession, isExpressMode]);
+
+    // Use AI-optimized session if available, otherwise use static fallback
+    const displayedExercises = useMemo(() => {
+        if (isExpressMode && expressSession?.exercises) {
+            return expressSession.exercises;
+        }
+        return getAdjustedExercises(currentSession.exercises, isExpressMode);
+    }, [currentSession, isExpressMode, expressSession]);
+
     const sessionKey = `c${activeCycle}s${activeSessionIdx}`;
 
     const toggleExercise = (exoName: string) => {
@@ -545,10 +589,15 @@ const WorkoutPlayer = () => {
                             </div>
 
                             <button
-                                onClick={() => setIsExpressMode(!isExpressMode)}
-                                className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isExpressMode ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 rotate-12' : 'bg-slate-100 text-slate-400'}`}
+                                onClick={handleExpressToggle}
+                                disabled={isOptimizing}
+                                className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isExpressMode ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 rotate-12' : 'bg-slate-100 text-slate-400'} ${isOptimizing ? 'animate-pulse' : ''}`}
                             >
-                                <Zap size={18} fill={isExpressMode ? "currentColor" : "none"} />
+                                {isOptimizing ? (
+                                    <div className="w-[18px] h-[18px] border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                    <Zap size={18} fill={isExpressMode ? "currentColor" : "none"} />
+                                )}
                             </button>
 
                             <button
