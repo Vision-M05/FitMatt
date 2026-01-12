@@ -4,12 +4,18 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     Dumbbell, Clock, Info, Zap,
     CheckCircle2, X, ChevronRight, Trophy, Save, History,
-    Calendar, Menu, BarChart3, Settings, Flame, Activity
+    Calendar, Menu, BarChart3, Settings, Flame, Activity, Gift, Target, RefreshCcw
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { Program } from '@/types';
-import ProgramManager from './ProgramManager';
-import StatsPanel from './StatsPanel';
+
+import DailySpin from './DailySpin';
+import WeeklyChallenges from './WeeklyChallenges';
+import BottomNav, { TabType } from './BottomNav';
+import ProgramPanel from './ProgramPanel';
+import AnalyticsPanel from './AnalyticsPanel';
+import ChallengesPanel from './ChallengesPanel';
+import ProfilePanel from './ProfilePanel';
 import type { User } from '@supabase/supabase-js';
 import { useTheme } from '@/contexts/ThemeContext';
 import feedback from '@/utils/haptics';
@@ -76,8 +82,8 @@ const staticProgramData: Record<number, any> = {
                 exercises: [
                     { name: "Squat Smith Machine", equip: "Avec Cale", sets: 5, reps: "15-12-10-8", tempo: "3010", rest: 60, note: "Adapter charge à l'échec" },
                     { name: "Soulevé de Terre", equip: "Jambes Tendues", sets: 5, reps: "8", tempo: "3010", rest: 90 },
-                    { name: "Leg Curl Allongé", equip: "Machine", sets: 5, reps: "15", tempo: "20X1", rest: 0, note: "Superset" },
-                    { name: "Bulgarian Split Squat", equip: "Haltères", sets: 4, reps: "10", tempo: "20X0", rest: 90 },
+                    { name: "Leg Curl Allongé", equip: "Machine", sets: 5, reps: "15", tempo: "20X1", rest: 0, note: "Superset", supersetId: "A" },
+                    { name: "Bulgarian Split Squat", equip: "Haltères", sets: 4, reps: "10", tempo: "20X0", rest: 90, supersetId: "A" },
                     { name: "Leg Extension", equip: "Machine", sets: 4, reps: "12", tempo: "10X0", rest: 0, note: "Enchaîné" },
                     { name: "Fentes Alternées", equip: "Haltères", sets: 4, reps: "20", tempo: "2010", rest: 45 },
                     { name: "Mollets Debout", equip: "Smith", sets: 5, reps: "15", tempo: "2010", rest: 45 },
@@ -298,8 +304,10 @@ const WorkoutPlayer = () => {
     const [expressSession, setExpressSession] = useState<any>(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
-    const [showProgramManager, setShowProgramManager] = useState(false);
-    const [showStatsPanel, setShowStatsPanel] = useState(false);
+
+    const [showDailySpin, setShowDailySpin] = useState(false);
+    const [showChallenges, setShowChallenges] = useState(false);
+    const [activeTab, setActiveTab] = useState<TabType>('workout');
 
     const [nextWorkoutDate, setNextWorkoutDate] = useState<Date | null>(null);
     const [completedExos, setCompletedExos] = useState<Record<string, string[]>>({});
@@ -566,8 +574,17 @@ const WorkoutPlayer = () => {
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
+    // Finish Session Logic
+    const [showFinishModal, setShowFinishModal] = useState(false);
+    const [rpe, setRpe] = useState(7);
+    const [fatigueScore, setFatigueScore] = useState(5);
+
     const handleFinishSession = () => {
-        if (!window.confirm("Valider cette séance ?")) return;
+        setShowFinishModal(true);
+    };
+
+    const confirmFinishSession = () => {
+        setShowFinishModal(false);
 
         // Calculate actual duration
         const durationMinutes = Math.round(sessionElapsed / 60);
@@ -603,14 +620,28 @@ const WorkoutPlayer = () => {
             resetSessionTimer();
         }, 1000);
 
-        // Save log to Supabase with real duration
+        // Save log to Supabase with real duration & RPE
         if (user) {
+            // Collect completed exercises data for Volume tracking
+            const exercisesPayload = displayedExercises
+                .filter((exo: any) => currentChecks.includes(exo.name))
+                .map((exo: any) => ({
+                    name: exo.name,
+                    sets: exo.sets || 3, // Default fallback
+                    reps: exo.reps || "10",
+                    weight: weights[`${sessionKey}_${exo.name}`] || 0
+                }));
+
             supabase.from('workout_logs').insert({
                 user_id: user.id,
                 session_name: currentSession.name,
                 duration_minutes: durationMinutes || 1,
-                completed_at: new Date().toISOString()
+                completed_at: new Date().toISOString(),
+                exercises: exercisesPayload,
+                rpe: rpe,
+                fatigue_score: fatigueScore
             });
+
 
             // Generate AI feedback
             generateAiFeedback(durationMinutes, currentChecks.length);
@@ -619,6 +650,7 @@ const WorkoutPlayer = () => {
             calculateWeightSuggestions();
         }
     };
+
 
     // AI Feedback Generation
     const generateAiFeedback = async (duration: number, exercisesCompleted: number) => {
@@ -744,15 +776,6 @@ const WorkoutPlayer = () => {
                                 )}
                             </button>
 
-                            {/* Stats Button */}
-                            <button
-                                onClick={() => setShowStatsPanel(true)}
-                                className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-amber-100 hover:text-amber-600 transition-all"
-                                title="Statistiques"
-                            >
-                                <BarChart3 size={18} />
-                            </button>
-
                             <button
                                 onClick={() => setShowSettings(!showSettings)}
                                 className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 active:rotate-90 transition-all duration-300"
@@ -762,36 +785,49 @@ const WorkoutPlayer = () => {
                         </div>
                     </div>
 
-                    <div className="flex justify-between items-end mb-2 animate-slide-up">
-                        <div>
-                            <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{currentCycle.title || `Cycle ${activeCycle}`}</div>
-                            <div className="text-lg font-bold text-slate-800 leading-tight">{currentSession.name}</div>
-                        </div>
-                        <div className="text-right">
-                            <span className="text-2xl font-black text-indigo-600 transition-all duration-500">{progress}%</span>
-                        </div>
-                    </div>
+                    {/* WORKOUT TAB CONTENT */}
+                    {activeTab === 'workout' && (
+                        <>
+                            <div className="flex justify-between items-end mb-2 animate-slide-up">
+                                <div>
+                                    <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{currentCycle.title || `Cycle ${activeCycle}`}</div>
+                                    <div className="text-lg font-bold text-slate-800 leading-tight">{currentSession.name}</div>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-2xl font-black text-indigo-600 transition-all duration-500">{progress}%</span>
+                                </div>
+                            </div>
 
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div
-                            className="bg-indigo-600 h-full transition-all duration-700 ease-out"
-                            style={{ width: `${progress}%` }}
-                        ></div>
-                    </div>
+                            {/* Boss Fight HP Bar */}
+                            {displayedExercises.length > 0 && (
+                                <div className="relative">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-lg">{progress >= 100 ? '💀' : '🐉'}</span>
+                                        <span className="text-xs font-bold text-slate-500">
+                                            {progress >= 100 ? 'BOSS VAINCU!' : `BOSS HP: ${100 - progress}%`}
+                                        </span>
+                                    </div>
+                                    <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden shadow-inner">
+                                        <div
+                                            className={`h-full transition-all duration-700 ease-out ${progress >= 100
+                                                ? 'bg-gradient-to-r from-emerald-400 to-teal-500'
+                                                : progress >= 70
+                                                    ? 'bg-gradient-to-r from-yellow-400 to-amber-500'
+                                                    : 'bg-gradient-to-r from-red-500 to-rose-600'
+                                                }`}
+                                            style={{ width: `${100 - progress}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
 
                 {showSettings && (
                     <div className="bg-slate-50 border-t border-slate-200 animate-slide-up">
                         <div className="max-w-md mx-auto p-4 space-y-4">
-                            {/* AI BUTTON */}
-                            <div>
-                                <button
-                                    onClick={() => { setShowProgramManager(true); setShowSettings(false); }}
-                                    className="w-full py-3 rounded-lg font-bold text-white bg-slate-900 shadow-md shadow-slate-200 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors dark:bg-slate-700"
-                                >
-                                    <Menu size={18} /> Gérer mes Programmes (IA)
-                                </button>
-                            </div>
+
 
                             {/* DARK MODE TOGGLE */}
                             <div className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-xl p-3 border border-slate-200 dark:border-slate-700">
@@ -873,103 +909,141 @@ const WorkoutPlayer = () => {
                 )}
             </header>
 
-            {/* EXERCISES LIST */}
-            <div className="max-w-md mx-auto px-4 mt-6 space-y-4">
-                {displayedExercises.map((exo: any, idx: number) => {
-                    const isDone = currentChecks.includes(exo.name);
-                    const savedWeight = weights[exo.name];
+            {/* EXERCISES LIST - Only show on workout tab */}
+            {activeTab === 'workout' && (
+                <div className="max-w-md mx-auto px-4 mt-6 space-y-4">
+                    {displayedExercises.map((exo: any, idx: number) => {
+                        const isDone = currentChecks.includes(exo.name);
+                        const savedWeight = weights[`${sessionKey}_${exo.name}`] || weights[exo.name]; // Handle sessionKey format if needed
 
-                    return (
-                        <div
-                            key={idx}
-                            className={`bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden transition-all duration-500 animate-slide-up active:scale-[0.99] ${isDone ? 'opacity-60 bg-slate-50' : ''}`}
-                            style={{ animationDelay: `${idx * 100}ms` }}
-                        >
-                            {isExpressMode && exo.originalSets > exo.sets && (
-                                <div className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-4 py-1 flex items-center gap-1">
-                                    <Zap size={10} fill="currentColor" /> Mode 1h (Sets réduits)
-                                </div>
-                            )}
+                        // Superset Logic
+                        const prevExo = displayedExercises[idx - 1];
+                        const nextExo = displayedExercises[idx + 1];
+                        const isSuperset = !!exo.supersetId;
+                        const isStart = isSuperset && (!prevExo || prevExo.supersetId !== exo.supersetId);
+                        const isEnd = isSuperset && (!nextExo || nextExo.supersetId !== exo.supersetId);
+                        const isMiddle = isSuperset && !isStart && !isEnd;
 
-                            <div className="p-4">
-                                <div className="flex justify-between items-start gap-3">
-                                    <div className="flex gap-3 flex-1">
-                                        <button
-                                            onClick={() => toggleExercise(exo.name)}
-                                            className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 shrink-0 mt-0.5 ${isDone ? 'bg-green-500 border-green-500 text-white animate-pop' : 'border-slate-200 text-transparent hover:border-green-400'}`}
-                                        >
-                                            <CheckCircle2 size={18} />
-                                        </button>
+                        // Visual adjustments for supersets
+                        const supersetClasses = isSuperset ? `
+                            border-l-[6px] border-l-indigo-500
+                            ${isStart ? 'rounded-b-sm mb-1' : ''}
+                            ${isMiddle ? 'rounded-t-sm rounded-b-sm mb-1 mt-0' : ''}
+                            ${isEnd ? 'rounded-t-sm mt-0 mb-6' : ''}
+                        ` : 'mb-4';
 
-                                        <div>
-                                            <h3 className={`font-bold text-lg leading-tight transition-colors ${isDone ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                                                {exo.name}
-                                            </h3>
-                                            <p className="text-xs text-slate-400 font-medium">{exo.equip}</p>
-                                        </div>
+                        return (
+                            <React.Fragment key={idx}>
+                                {isStart && (
+                                    <div className="bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1 rounded-t-lg mx-4 -mb-2 w-fit relative z-10 flex items-center gap-1">
+                                        <RefreshCcw size={10} /> SUPERSET {exo.supersetId}
                                     </div>
+                                )}
 
-                                    {exo.rest > 0 && (
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); startTimer(exo.rest); }}
-                                            className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 text-indigo-700 px-3 py-2 rounded-lg text-xs font-bold transition-all active:scale-90 shrink-0"
-                                        >
-                                            <Clock size={14} className={timer.active ? 'animate-spin' : ''} /> {exo.rest}s
-                                        </button>
+                                <div
+                                    className={`relative bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden transition-all duration-500 animate-slide-up active:scale-[0.99] ${isDone ? 'opacity-60 bg-slate-50' : ''} ${supersetClasses}`}
+                                    style={{ animationDelay: `${idx * 100}ms` }}
+                                >
+                                    {isExpressMode && exo.originalSets > exo.sets && (
+                                        <div className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-4 py-1 flex items-center gap-1">
+                                            <Zap size={10} fill="currentColor" /> Mode 1h (Sets réduits)
+                                        </div>
                                     )}
-                                </div>
 
-                                <div className="mt-4 flex items-end justify-between bg-slate-50/50 p-3 rounded-xl border border-slate-100">
-                                    <div className="flex gap-4">
-                                        <div>
-                                            <div className="text-[10px] text-slate-400 uppercase font-bold text-center">Séries</div>
-                                            <div className="text-xl font-black text-slate-800 text-center">{exo.sets}</div>
-                                        </div>
-                                        <div>
-                                            <div className="text-[10px] text-slate-400 uppercase font-bold text-center">Reps</div>
-                                            <div className="text-xl font-black text-slate-800 text-center">{exo.reps}</div>
-                                        </div>
-                                    </div>
+                                    <div className="p-4">
+                                        <div className="flex justify-between items-start gap-3">
+                                            <div className="flex gap-3 flex-1">
+                                                <button
+                                                    onClick={() => toggleExercise(exo.name)}
+                                                    className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 shrink-0 mt-0.5 ${isDone ? 'bg-green-500 border-green-500 text-white animate-pop' : 'border-slate-200 text-transparent hover:border-green-400'}`}
+                                                >
+                                                    <CheckCircle2 size={18} />
+                                                </button>
 
-                                    <div className="flex flex-col items-end">
-                                        {savedWeight && (
-                                            <div className="text-[10px] text-indigo-500 font-bold mb-1 flex items-center gap-1 bg-indigo-50 px-1.5 py-0.5 rounded animate-pop">
-                                                <History size={10} /> {savedWeight}kg
+                                                <div>
+                                                    <h3 className={`font-bold text-lg leading-tight transition-colors ${isDone ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                                                        {exo.name}
+                                                    </h3>
+                                                    <p className="text-xs text-slate-400 font-medium">{exo.equip}</p>
+                                                </div>
                                             </div>
-                                        )}
-                                        <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-lg border border-slate-200 shadow-sm focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-                                            <input
-                                                type="number"
-                                                inputMode="decimal"
-                                                placeholder="--"
-                                                className="w-12 text-right font-bold outline-none text-slate-900 placeholder:text-slate-300"
-                                                value={weights[exo.name] || ''}
-                                                onChange={(e) => saveWeight(exo.name, e.target.value)}
-                                                onClick={(e) => e.stopPropagation()}
-                                            />
-                                            <span className="text-xs text-slate-400 font-bold pr-1">kg</span>
+
+                                            {exo.rest > 0 && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); startTimer(exo.rest); }}
+                                                    className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 text-indigo-700 px-3 py-2 rounded-lg text-xs font-bold transition-all active:scale-90 shrink-0"
+                                                >
+                                                    <Clock size={14} className={timer.active ? 'animate-spin' : ''} /> {exo.rest}s
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="mt-4 flex items-end justify-between bg-slate-50/50 p-3 rounded-xl border border-slate-100">
+                                            <div className="flex gap-4">
+                                                <div>
+                                                    <div className="text-[10px] text-slate-400 uppercase font-bold text-center">Séries</div>
+                                                    <div className="text-xl font-black text-slate-800 text-center">{exo.sets}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] text-slate-400 uppercase font-bold text-center">Reps</div>
+                                                    <div className="text-xl font-black text-slate-800 text-center">{exo.reps}</div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex flex-col items-end">
+                                                {savedWeight && (
+                                                    <div className="text-[10px] text-indigo-500 font-bold mb-1 flex items-center gap-1 bg-indigo-50 px-1.5 py-0.5 rounded animate-pop">
+                                                        <History size={10} /> {savedWeight}kg
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-lg border border-slate-200 shadow-sm focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                                                    <input
+                                                        type="number"
+                                                        inputMode="decimal"
+                                                        placeholder="--"
+                                                        className="w-12 text-right font-bold outline-none text-slate-900 placeholder:text-slate-300"
+                                                        value={weights[`${sessionKey}_${exo.name}`] || weights[exo.name] || ''}
+                                                        onChange={(e) => saveWeight(exo.name, e.target.value)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    />
+                                                    <span className="text-xs text-slate-400 font-bold pr-1">kg</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="px-1 mt-1">
+                                            <TempoDisplay code={exo.tempo} />
+                                            {exo.note && (
+                                                <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 p-2 rounded flex gap-2 items-start animate-slide-up" style={{ animationDelay: '0.3s' }}>
+                                                    <Info size={14} className="mt-0.5 shrink-0" />
+                                                    <span className="font-medium">{exo.note}</span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
-                                </div>
 
-                                <div className="px-1 mt-1">
-                                    <TempoDisplay code={exo.tempo} />
-                                    {exo.note && (
-                                        <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 p-2 rounded flex gap-2 items-start animate-slide-up" style={{ animationDelay: '0.3s' }}>
-                                            <Info size={14} className="mt-0.5 shrink-0" />
-                                            <span className="font-medium">{exo.note}</span>
-                                        </div>
+                                    {/* Superset Connector Line (visual only) */}
+                                    {(isStart || isMiddle) && (
+                                        <div className="absolute bottom-0 left-[21px] w-[2px] h-4 bg-indigo-300 z-0"></div>
                                     )}
                                 </div>
 
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
+                                {/* Link Icon between superset items */}
+                                {(isStart || isMiddle) && (
+                                    <div className="flex justify-center -my-3 relative z-10">
+                                        <div className="bg-indigo-50 rounded-full p-1 border border-indigo-100 text-indigo-400 shadow-sm">
+                                            <RefreshCcw size={12} className="rotate-90" />
+                                        </div>
+                                    </div>
+                                )}
+                            </React.Fragment>
+                        );
+                    })}
+                </div>
+            )}
 
-            {/* FLOATING TIMER OVERLAY */}
-            {timer.active && (
+            {/* FLOATING TIMER OVERLAY - Positioned above BottomNav */}
+            {activeTab === 'workout' && timer.active && (
                 <div className="fixed bottom-24 left-4 right-4 bg-slate-900/90 backdrop-blur-xl text-white p-4 rounded-3xl shadow-2xl z-50 animate-slide-up border border-slate-700/50">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -1001,56 +1075,97 @@ const WorkoutPlayer = () => {
                 </div>
             )}
 
-            {/* BOTTOM NAV BAR */}
-            <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-slate-200 p-4 pb-8 z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                <div className="max-w-md mx-auto flex gap-3">
-                    <div className="flex-1 flex flex-col justify-center">
-                        <div className="text-[10px] text-slate-400 uppercase font-bold text-center mb-0.5">Durée estimée</div>
-                        <div className="text-center font-black text-xl text-slate-800 leading-none">
-                            {isExpressMode ? '~55m' : '~1h25'}
+            {/* SAVE BUTTON BAR - Above BottomNav */}
+            {activeTab === 'workout' && (
+                <div className="fixed bottom-20 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-slate-200 p-4 pb-4 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                    <div className="max-w-md mx-auto flex gap-3">
+                        <div className="flex-1 flex flex-col justify-center">
+                            <div className="text-[10px] text-slate-400 uppercase font-bold text-center mb-0.5">Durée estimée</div>
+                            <div className="text-center font-black text-xl text-slate-800 leading-none">
+                                {isExpressMode ? '~55m' : '~1h25'}
+                            </div>
+                        </div>
+                        <button
+                            onClick={handleFinishSession}
+                            disabled={progress < 20}
+                            className={`flex-[2] rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg py-3.5 ${progress >= 90 ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:opacity-90 text-white shadow-indigo-500/30' : 'bg-slate-900 text-white shadow-slate-900/20'}`}
+                        >
+                            {progress >= 90 ? <Trophy size={20} className="animate-bounce" /> : <Save size={20} />}
+                            {progress >= 90 ? "Valider la séance !" : "Enregistrer"}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+
+
+
+
+            {/* FINISH SESSION MODAL */}
+            {showFinishModal && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl">
+                        <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Bravo ! 🎉</h3>
+                        <p className="text-slate-500 mb-6">Séance terminée. Comment c'était ?</p>
+
+                        {/* RPE Slider */}
+                        <div className="mb-6">
+                            <div className="flex justify-between mb-2">
+                                <label className="font-bold text-slate-700 dark:text-slate-300">Intensité (RPE)</label>
+                                <span className="font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900 px-2 rounded-lg">{rpe}/10</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="1" max="10"
+                                value={rpe}
+                                onChange={(e) => setRpe(parseInt(e.target.value))}
+                                className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                            />
+                            <div className="flex justify-between text-[10px] text-slate-400 mt-1 uppercase font-bold">
+                                <span>Facile</span>
+                                <span>Extrême</span>
+                            </div>
+                        </div>
+
+                        {/* Fatigue Review */}
+                        <div className="mb-8">
+                            <div className="flex justify-between mb-2">
+                                <label className="font-bold text-slate-700 dark:text-slate-300">Fatigue Ressentie</label>
+                                <span className={`font-black px-2 rounded-lg ${fatigueScore >= 8 ? 'text-red-600 bg-red-50' : 'text-slate-600 bg-slate-100'}`}>{fatigueScore}/10</span>
+                            </div>
+                            <div className="flex justify-between gap-1">
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                                    <button
+                                        key={num}
+                                        onClick={() => setFatigueScore(num)}
+                                        className={`flex-1 aspect-square rounded-lg font-bold text-sm transition-all ${fatigueScore === num
+                                            ? 'bg-slate-800 text-white scale-110 shadow-lg'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-slate-200'
+                                            }`}
+                                    >
+                                        {num}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowFinishModal(false)}
+                                className="flex-1 py-4 font-bold text-slate-500 hover:bg-slate-50 rounded-xl"
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={confirmFinishSession}
+                                className="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 active:scale-95 transition-all"
+                            >
+                                Valider la séance
+                            </button>
                         </div>
                     </div>
-                    <button
-                        onClick={handleFinishSession}
-                        disabled={progress < 20}
-                        className={`flex-[2] rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg py-3.5 ${progress >= 90 ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:opacity-90 text-white shadow-indigo-500/30' : 'bg-slate-900 text-white shadow-slate-900/20'}`}
-                    >
-                        {progress >= 90 ? <Trophy size={20} className="animate-bounce" /> : <Save size={20} />}
-                        {progress >= 90 ? "Valider la séance !" : "Enregistrer"}
-                    </button>
                 </div>
-            </div>
-
-            {/* PROGRAM MANAGER MODAL */}
-            <ProgramManager
-                isOpen={showProgramManager}
-                onClose={() => setShowProgramManager(false)}
-                user={user}
-                onSelectProgram={(prog, id) => {
-                    if (id === 'reference') {
-                        setFullData(staticProgramData);
-                        setActiveCycle(1);
-                    } else {
-                        // Add as Cycle 0
-                        setFullData(prev => ({
-                            ...prev,
-                            0: { ...prog, title: prog.title }
-                        }));
-                        setActiveCycle(0);
-                    }
-                    setActiveSessionIdx(0);
-                    // Persist valid selection
-                    localStorage.setItem('velox_cycle', id === 'reference' ? '1' : '0');
-                }}
-                currentProgramId={activeCycle === 0 ? 'custom' : 'reference'}
-            />
-
-            {/* STATS PANEL */}
-            <StatsPanel
-                isOpen={showStatsPanel}
-                onClose={() => setShowStatsPanel(false)}
-                user={user}
-            />
+            )}
 
             {/* AI FEEDBACK MODAL */}
             {showFeedbackModal && aiFeedback && (
@@ -1080,6 +1195,65 @@ const WorkoutPlayer = () => {
                     </div>
                 </div>
             )}
+
+            {/* DAILY SPIN */}
+            <DailySpin
+                isOpen={showDailySpin}
+                onClose={() => setShowDailySpin(false)}
+                onReward={(reward) => {
+                    console.log('Reward:', reward);
+                    // Could trigger special effects based on reward type
+                }}
+            />
+
+            {/* WEEKLY CHALLENGES */}
+            <WeeklyChallenges
+                isOpen={showChallenges}
+                onClose={() => setShowChallenges(false)}
+                user={user}
+            />
+
+            {/* TAB CONTENT - Only show when not on workout tab */}
+            {activeTab === 'program' && (
+                <div className="pb-24 animate-in slide-in-from-right duration-500">
+                    <ProgramPanel
+                        fullData={fullData}
+                        activeCycle={activeCycle}
+                        activeSessionIdx={activeSessionIdx}
+                        user={user}
+                        onSelectCycle={(idx) => {
+                            setActiveCycle(idx);
+                            setActiveSessionIdx(0); // Reset session to 1st of cycle
+                            localStorage.setItem('velox_cycle', idx.toString());
+                            localStorage.setItem('velox_session', '0');
+                        }}
+                        onSelectSession={(idx) => {
+                            setActiveSessionIdx(idx);
+                            setActiveTab('workout');
+                            localStorage.setItem('velox_session', idx.toString());
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        onUpdateData={setFullData}
+                        onReset={() => {
+                            if (confirm('Recommencer le cycle actuel à zéro ?')) {
+                                setActiveSessionIdx(0);
+                                setCompletedExos({ ...completedExos, [sessionKey]: [] });
+                                localStorage.setItem('velox_session', '0');
+                                window.location.reload();
+                            }
+                        }}
+                    />
+                </div>
+            )}
+            {activeTab === 'stats' && <AnalyticsPanel user={user} />}
+            {activeTab === 'challenges' && <ChallengesPanel user={user} />}
+            {activeTab === 'profile' && <ProfilePanel user={user} />}
+
+            {/* BOTTOM NAVIGATION */}
+            <BottomNav
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+            />
 
         </div>
     );
