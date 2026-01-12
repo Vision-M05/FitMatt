@@ -657,7 +657,7 @@ const WorkoutPlayer = () => {
     const calculateWeightSuggestions = () => {
         const newSuggestions: Record<string, number> = {};
 
-        displayedExercises.forEach(exo => {
+        displayedExercises.forEach((exo: { name: string; sets?: number; reps?: string; rest?: number; notes?: string }) => {
             const exoKey = `${sessionKey}_${exo.name}`;
             const isCompleted = currentChecks.includes(exo.name);
             const currentWeight = weights[exoKey] || 0;
