@@ -9,7 +9,10 @@ import {
 import { createClient } from '@/utils/supabase/client';
 import { Program } from '@/types';
 import ProgramManager from './ProgramManager';
+import StatsPanel from './StatsPanel';
 import type { User } from '@supabase/supabase-js';
+import { useTheme } from '@/contexts/ThemeContext';
+import feedback from '@/utils/haptics';
 
 // --- CUSTOM STYLES & ANIMATIONS ---
 const styles = `
@@ -287,6 +290,7 @@ const Confetti = () => (
 
 // --- MAIN COMPONENT ---
 const WorkoutPlayer = () => {
+    const { isDark, toggleTheme } = useTheme();
     const [activeCycle, setActiveCycle] = useState(1);
     const [activeSessionIdx, setActiveSessionIdx] = useState(0);
     const [isExpressMode, setIsExpressMode] = useState(false);
@@ -295,6 +299,7 @@ const WorkoutPlayer = () => {
     const [showSettings, setShowSettings] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
     const [showProgramManager, setShowProgramManager] = useState(false);
+    const [showStatsPanel, setShowStatsPanel] = useState(false);
 
     const [nextWorkoutDate, setNextWorkoutDate] = useState<Date | null>(null);
     const [completedExos, setCompletedExos] = useState<Record<string, string[]>>({});
@@ -304,6 +309,16 @@ const WorkoutPlayer = () => {
     const [timer, setTimer] = useState({ seconds: 0, initial: 0, isRunning: false, active: false });
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const [user, setUser] = useState<User | null>(null);
+
+    // Global Session Timer
+    const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+    const [sessionElapsed, setSessionElapsed] = useState(0);
+    const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    // AI Weight Suggestions
+    const [weightSuggestions, setWeightSuggestions] = useState<Record<string, number>>({});
+    const [aiFeedback, setAiFeedback] = useState<string | null>(null);
+    const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
     const supabase = createClient();
 
@@ -493,6 +508,7 @@ const WorkoutPlayer = () => {
             newCompleted = currentCompleted.filter(id => id !== exoName);
         } else {
             newCompleted = [...currentCompleted, exoName];
+            feedback.check(); // Haptic feedback on check
         }
         setCompletedExos({ ...completedExos, [sessionKey]: newCompleted });
     };
@@ -522,8 +538,42 @@ const WorkoutPlayer = () => {
         setTimer(prev => ({ ...prev, seconds: prev.seconds + secs, initial: prev.initial + secs }));
     };
 
+    // Session Timer Functions
+    const startSessionTimer = () => {
+        if (sessionStartTime) return; // Already running
+        setSessionStartTime(new Date());
+        sessionTimerRef.current = setInterval(() => {
+            setSessionElapsed(prev => prev + 1);
+        }, 1000);
+    };
+
+    const stopSessionTimer = () => {
+        if (sessionTimerRef.current) {
+            clearInterval(sessionTimerRef.current);
+            sessionTimerRef.current = null;
+        }
+    };
+
+    const resetSessionTimer = () => {
+        stopSessionTimer();
+        setSessionStartTime(null);
+        setSessionElapsed(0);
+    };
+
+    const formatSessionTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+
     const handleFinishSession = () => {
         if (!window.confirm("Valider cette séance ?")) return;
+
+        // Calculate actual duration
+        const durationMinutes = Math.round(sessionElapsed / 60);
+
+        // Stop session timer
+        stopSessionTimer();
 
         // Célébration
         setShowConfetti(true);
@@ -550,18 +600,78 @@ const WorkoutPlayer = () => {
             localStorage.setItem('velox_session', nextIdx.toString());
             localStorage.setItem('velox_cycle', nextCyc.toString());
             stopTimer();
+            resetSessionTimer();
         }, 1000);
 
-        // Save log to Supabase
-        supabase.auth.getUser().then(({ data: { user } }) => {
-            if (user) {
-                supabase.from('workout_logs').insert({
-                    user_id: user.id,
-                    session_name: currentSession.name,
-                    duration_minutes: 60
-                });
+        // Save log to Supabase with real duration
+        if (user) {
+            supabase.from('workout_logs').insert({
+                user_id: user.id,
+                session_name: currentSession.name,
+                duration_minutes: durationMinutes || 1,
+                completed_at: new Date().toISOString()
+            });
+
+            // Generate AI feedback
+            generateAiFeedback(durationMinutes, currentChecks.length);
+
+            // Calculate weight suggestions for completed exercises
+            calculateWeightSuggestions();
+        }
+    };
+
+    // AI Feedback Generation
+    const generateAiFeedback = async (duration: number, exercisesCompleted: number) => {
+        try {
+            // Get stats for context
+            const { data: logs } = await supabase
+                .from('workout_logs')
+                .select('*')
+                .eq('user_id', user?.id)
+                .order('completed_at', { ascending: false })
+                .limit(30);
+
+            const totalWorkouts = logs?.length || 0;
+
+            const res = await fetch('/api/workout-feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    duration,
+                    exercisesCompleted,
+                    currentStreak: totalWorkouts > 0 ? Math.min(totalWorkouts, 7) : 1,
+                    totalWorkouts,
+                    sessionName: currentSession.name
+                })
+            });
+
+            const data = await res.json();
+            setAiFeedback(data.feedback);
+            setShowFeedbackModal(true);
+        } catch (error) {
+            console.error('AI feedback error:', error);
+        }
+    };
+
+    // Calculate weight suggestions based on completed exercises
+    const calculateWeightSuggestions = () => {
+        const newSuggestions: Record<string, number> = {};
+
+        displayedExercises.forEach(exo => {
+            const exoKey = `${sessionKey}_${exo.name}`;
+            const isCompleted = currentChecks.includes(exo.name);
+            const currentWeight = weights[exoKey] || 0;
+
+            if (isCompleted && currentWeight > 0) {
+                // Suggest +2.5kg if exercise was completed
+                newSuggestions[exo.name] = currentWeight + 2.5;
             }
         });
+
+        if (Object.keys(newSuggestions).length > 0) {
+            setWeightSuggestions(newSuggestions);
+            localStorage.setItem('velox_weight_suggestions', JSON.stringify(newSuggestions));
+        }
     };
 
     const currentChecks = completedExos[sessionKey] || [];
@@ -587,12 +697,12 @@ const WorkoutPlayer = () => {
     }, [nextWorkoutDate]);
 
     return (
-        <div className="bg-slate-50 text-slate-900 font-sans pb-40 select-none">
+        <div className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans pb-40 select-none transition-colors duration-300">
             <style>{styles}</style>
             {showConfetti && <Confetti />}
 
             {/* HEADER STICKY */}
-            <header className="bg-white/90 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 shadow-sm transition-all duration-300">
+            <header className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-300">
                 <div className="max-w-md mx-auto px-4 py-3">
                     <div className="flex justify-between items-center mb-3">
                         <div className="flex items-center gap-2">
@@ -607,6 +717,15 @@ const WorkoutPlayer = () => {
                         </div>
 
                         <div className="flex items-center gap-2">
+                            {/* Session Timer */}
+                            <button
+                                onClick={() => sessionStartTime ? stopSessionTimer() : startSessionTimer()}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${sessionStartTime ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}
+                            >
+                                <Clock size={14} />
+                                <span className="font-mono">{formatSessionTime(sessionElapsed)}</span>
+                            </button>
+
                             <div className={`px-2 py-1 rounded-md text-xs font-bold bg-slate-100 ${status.color || 'opacity-0'}`}>
                                 {status.text}
                             </div>
@@ -623,6 +742,15 @@ const WorkoutPlayer = () => {
                                 ) : (
                                     <Zap size={18} fill={isExpressMode ? "currentColor" : "none"} />
                                 )}
+                            </button>
+
+                            {/* Stats Button */}
+                            <button
+                                onClick={() => setShowStatsPanel(true)}
+                                className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-amber-100 hover:text-amber-600 transition-all"
+                                title="Statistiques"
+                            >
+                                <BarChart3 size={18} />
                             </button>
 
                             <button
@@ -659,9 +787,25 @@ const WorkoutPlayer = () => {
                             <div>
                                 <button
                                     onClick={() => { setShowProgramManager(true); setShowSettings(false); }}
-                                    className="w-full py-3 rounded-lg font-bold text-white bg-slate-900 shadow-md shadow-slate-200 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
+                                    className="w-full py-3 rounded-lg font-bold text-white bg-slate-900 shadow-md shadow-slate-200 flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors dark:bg-slate-700"
                                 >
                                     <Menu size={18} /> Gérer mes Programmes (IA)
+                                </button>
+                            </div>
+
+                            {/* DARK MODE TOGGLE */}
+                            <div className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-xl p-3 border border-slate-200 dark:border-slate-700">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
+                                        {isDark ? '🌙' : '☀️'}
+                                    </div>
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">Mode {isDark ? 'Sombre' : 'Clair'}</span>
+                                </div>
+                                <button
+                                    onClick={toggleTheme}
+                                    className={`w-14 h-8 rounded-full transition-all duration-300 ${isDark ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                                >
+                                    <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${isDark ? 'translate-x-7' : 'translate-x-1'}`} />
                                 </button>
                             </div>
 
@@ -900,6 +1044,42 @@ const WorkoutPlayer = () => {
                 }}
                 currentProgramId={activeCycle === 0 ? 'custom' : 'reference'}
             />
+
+            {/* STATS PANEL */}
+            <StatsPanel
+                isOpen={showStatsPanel}
+                onClose={() => setShowStatsPanel(false)}
+                user={user}
+            />
+
+            {/* AI FEEDBACK MODAL */}
+            {showFeedbackModal && aiFeedback && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl animate-bounce-in">
+                        <div className="text-6xl mb-4">🎉</div>
+                        <h3 className="text-xl font-black text-slate-900 dark:text-white mb-3">Séance validée !</h3>
+                        <p className="text-slate-600 dark:text-slate-300 mb-6 leading-relaxed">{aiFeedback}</p>
+
+                        {Object.keys(weightSuggestions).length > 0 && (
+                            <div className="bg-indigo-50 dark:bg-indigo-900/30 rounded-xl p-4 mb-4 text-left">
+                                <div className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mb-2">💪 Suggestions pour la prochaine fois :</div>
+                                {Object.entries(weightSuggestions).slice(0, 3).map(([name, weight]) => (
+                                    <div key={name} className="text-xs text-slate-600 dark:text-slate-400">
+                                        {name}: <span className="font-bold text-emerald-600">+2.5kg → {weight}kg</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <button
+                            onClick={() => setShowFeedbackModal(false)}
+                            className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-3 rounded-xl font-bold hover:shadow-lg transition-all"
+                        >
+                            Continuer 🚀
+                        </button>
+                    </div>
+                </div>
+            )}
 
         </div>
     );
