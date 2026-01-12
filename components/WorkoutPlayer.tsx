@@ -307,16 +307,34 @@ const WorkoutPlayer = () => {
 
     const supabase = createClient();
 
-    // Handle Express Mode Toggle with AI Optimization
-    const handleExpressToggle = async () => {
-        if (isExpressMode) {
-            // Turn OFF express mode - restore original session
+    // Handle Express Mode Toggle with AI Optimization + Database Storage
+    const handleExpressToggle = async (forceRegenerate = false) => {
+        const sessionKey = `c${activeCycle}s${activeSessionIdx}`;
+
+        if (isExpressMode && !forceRegenerate) {
+            // Turn OFF express mode
             setIsExpressMode(false);
             setExpressSession(null);
             return;
         }
 
-        // Turn ON express mode - call AI to optimize
+        // Check database first (unless forcing regeneration)
+        if (!forceRegenerate && user) {
+            const { data: existingExpress } = await supabase
+                .from('express_sessions')
+                .select('express_session')
+                .eq('user_id', user.id)
+                .eq('session_key', sessionKey)
+                .single();
+
+            if (existingExpress?.express_session) {
+                setExpressSession(existingExpress.express_session);
+                setIsExpressMode(true);
+                return;
+            }
+        }
+
+        // Call AI to optimize
         setIsOptimizing(true);
         try {
             const res = await fetch('/api/optimize-session', {
@@ -327,6 +345,22 @@ const WorkoutPlayer = () => {
 
             if (res.ok) {
                 const optimized = await res.json();
+
+                // Save to database (upsert - insert or update)
+                if (user) {
+                    await supabase
+                        .from('express_sessions')
+                        .upsert({
+                            user_id: user.id,
+                            session_key: sessionKey,
+                            original_session: currentSession,
+                            express_session: optimized,
+                            optimization_notes: optimized.optimizationNotes || null,
+                            estimated_duration: optimized.estimatedDuration || null,
+                            updated_at: new Date().toISOString()
+                        }, { onConflict: 'user_id,session_key' });
+                }
+
                 setExpressSession(optimized);
                 setIsExpressMode(true);
             } else {
@@ -395,36 +429,25 @@ const WorkoutPlayer = () => {
         }
     }, []);
 
-    // Auth management - Demo user for development
+    // Auth management - Redirect to login if not authenticated
     useEffect(() => {
-        const ensureAuth = async () => {
+        const checkAuth = async () => {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
-                // Use demo user for development
-                const email = "demo@fitmatt.com";
-                const password = "password123";
-                const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+                // Redirect to login page
+                window.location.href = '/login';
+                return;
+            }
+            setUser(session.user);
+        };
+        checkAuth();
 
-                if (signInError) {
-                    // Demo user doesn't exist, create it
-                    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
-                    if (signUpData?.user) {
-                        setUser(signUpData.user);
-                    } else if (signUpError) {
-                        console.warn("Could not create demo user:", signUpError.message);
-                        // App will work in local-only mode
-                    }
-                } else if (signInData?.user) {
-                    setUser(signInData.user);
-                }
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (!session) {
+                window.location.href = '/login';
             } else {
                 setUser(session.user);
             }
-        };
-        ensureAuth();
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user || null);
         });
 
         return () => subscription.unsubscribe();
@@ -589,8 +612,10 @@ const WorkoutPlayer = () => {
                             </div>
 
                             <button
-                                onClick={handleExpressToggle}
+                                onClick={() => handleExpressToggle()}
+                                onContextMenu={(e) => { e.preventDefault(); handleExpressToggle(true); }}
                                 disabled={isOptimizing}
+                                title={isExpressMode ? "Désactiver Express (clic droit = régénérer)" : "Activer mode Express IA"}
                                 className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isExpressMode ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 rotate-12' : 'bg-slate-100 text-slate-400'} ${isOptimizing ? 'animate-pulse' : ''}`}
                             >
                                 {isOptimizing ? (
@@ -673,6 +698,32 @@ const WorkoutPlayer = () => {
                                     ))}
                                 </div>
                             </div>
+
+                            {/* USER INFO & LOGOUT */}
+                            {user && (
+                                <div className="pt-4 border-t border-slate-200">
+                                    <div className="flex items-center justify-between bg-white rounded-xl p-3 border border-slate-200">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">
+                                                {user.email?.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <div className="text-xs text-slate-400 font-medium">Connecté</div>
+                                                <div className="text-sm font-bold text-slate-700 truncate max-w-[150px]">{user.email}</div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={async () => {
+                                                await supabase.auth.signOut();
+                                                window.location.href = '/login';
+                                            }}
+                                            className="px-3 py-2 bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-500 text-xs font-bold rounded-lg transition-colors"
+                                        >
+                                            Déconnexion
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -680,7 +731,7 @@ const WorkoutPlayer = () => {
 
             {/* EXERCISES LIST */}
             <div className="max-w-md mx-auto px-4 mt-6 space-y-4">
-                {displayedExercises.map((exo, idx) => {
+                {displayedExercises.map((exo: any, idx: number) => {
                     const isDone = currentChecks.includes(exo.name);
                     const savedWeight = weights[exo.name];
 
