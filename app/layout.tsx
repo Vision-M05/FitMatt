@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FitMatt AI",
+  title: "Velox",
   description: "Your AI-Powered Workout Companion",
 };
 

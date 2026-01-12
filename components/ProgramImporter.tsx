@@ -169,7 +169,7 @@ export default function ProgramImporter() {
                             className="w-full py-3 rounded-xl font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 active:scale-[0.98] transition-all border border-indigo-200 flex items-center justify-center gap-2"
                         >
                             {isSaving ? <Loader2 className="animate-spin" /> : <Save size={20} />}
-                            Sauvegarder dans FitMatt
+                            Sauvegarder dans Velox
                         </button>
                     </motion.div>
                 )}

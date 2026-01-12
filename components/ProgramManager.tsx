@@ -224,7 +224,7 @@ export default function ProgramManager({ isOpen, onClose, onSelectProgram, curre
                                             <Dumbbell size={20} />
                                         </div>
                                         <div>
-                                            <h3 className="font-bold text-slate-800">Programme FitMatt</h3>
+                                            <h3 className="font-bold text-slate-800">Programme Velox</h3>
                                             <p className="text-xs text-slate-500 font-medium mt-1">Le programme original (Cycles 1-4)</p>
                                             <div className="flex gap-2 mt-2">
                                                 <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded">Complet</span>

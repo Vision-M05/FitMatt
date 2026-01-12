@@ -73,7 +73,7 @@ export default function LoginPage() {
                         </div>
                     </div>
                     <h1 className="text-4xl font-black text-white mb-2">
-                        FIT<span className="text-indigo-400">MATT</span>
+                        VE<span className="text-indigo-400">LOX</span>
                     </h1>
                     <p className="text-slate-400">Ton coach personnel alimenté par l'IA</p>
                 </div>

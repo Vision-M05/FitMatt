@@ -406,7 +406,7 @@ const WorkoutPlayer = () => {
                     ...prev
                 }));
 
-                if (localStorage.getItem('fitmatt_cycle') === null) {
+                if (localStorage.getItem('velox_cycle') === null) {
                     setActiveCycle(0); // Switch to AI program by default if new
                 }
             }
@@ -417,10 +417,10 @@ const WorkoutPlayer = () => {
     // Load saved state from localStorage
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            const savedDate = localStorage.getItem('fitmatt_next_date');
-            const savedCycle = localStorage.getItem('fitmatt_cycle');
-            const savedSession = localStorage.getItem('fitmatt_session');
-            const savedWeights = localStorage.getItem('fitmatt_weights');
+            const savedDate = localStorage.getItem('velox_next_date');
+            const savedCycle = localStorage.getItem('velox_cycle');
+            const savedSession = localStorage.getItem('velox_session');
+            const savedWeights = localStorage.getItem('velox_weights');
 
             if (savedDate) setNextWorkoutDate(new Date(savedDate));
             if (savedCycle) setActiveCycle(parseInt(savedCycle));
@@ -457,7 +457,7 @@ const WorkoutPlayer = () => {
         const val = parseFloat(value);
         const newWeights = { ...weights, [exoName]: val };
         setWeights(newWeights);
-        localStorage.setItem('fitmatt_weights', JSON.stringify(newWeights));
+        localStorage.setItem('velox_weights', JSON.stringify(newWeights));
 
         // Also persist to Supabase if possible
         persistWeight(exoName, val);
@@ -533,7 +533,7 @@ const WorkoutPlayer = () => {
         const next = new Date();
         next.setDate(today.getDate() + 2);
         setNextWorkoutDate(next);
-        localStorage.setItem('fitmatt_next_date', next.toISOString());
+        localStorage.setItem('velox_next_date', next.toISOString());
 
         setCompletedExos({ ...completedExos, [sessionKey]: [] });
 
@@ -547,8 +547,8 @@ const WorkoutPlayer = () => {
         setTimeout(() => {
             setActiveSessionIdx(nextIdx);
             setActiveCycle(nextCyc);
-            localStorage.setItem('fitmatt_session', nextIdx.toString());
-            localStorage.setItem('fitmatt_cycle', nextCyc.toString());
+            localStorage.setItem('velox_session', nextIdx.toString());
+            localStorage.setItem('velox_cycle', nextCyc.toString());
             stopTimer();
         }, 1000);
 
@@ -601,7 +601,7 @@ const WorkoutPlayer = () => {
                             </div>
                             <div>
                                 <h1 className="text-xl font-black italic text-slate-900 leading-none tracking-tighter">
-                                    FIT<span className="text-indigo-600">MATT</span>
+                                    VE<span className="text-indigo-600">LOX</span>
                                 </h1>
                             </div>
                         </div>
@@ -896,7 +896,7 @@ const WorkoutPlayer = () => {
                     }
                     setActiveSessionIdx(0);
                     // Persist valid selection
-                    localStorage.setItem('fitmatt_cycle', id === 'reference' ? '1' : '0');
+                    localStorage.setItem('velox_cycle', id === 'reference' ? '1' : '0');
                 }}
                 currentProgramId={activeCycle === 0 ? 'custom' : 'reference'}
             />
