@@ -334,7 +334,9 @@ const WorkoutPlayer = () => {
 
     // Handle Express Mode Toggle with AI Optimization + Database Storage
     const handleExpressToggle = async (forceRegenerate = false) => {
-        const sessionKey = `c${activeCycle}s${activeSessionIdx}`;
+        // Create a unique key that includes cycle, session index, and session name (sanitized)
+        const sessionName = currentSession?.name?.replace(/[^a-zA-Z0-9]/g, '_') || `session${activeSessionIdx}`;
+        const sessionKey = `c${activeCycle}_${sessionName}`;
 
         if (isExpressMode && !forceRegenerate) {
             // Turn OFF express mode
@@ -454,6 +456,12 @@ const WorkoutPlayer = () => {
         }
     }, []);
 
+    // Reset Express mode when cycle or session changes
+    useEffect(() => {
+        setIsExpressMode(false);
+        setExpressSession(null);
+    }, [activeCycle, activeSessionIdx]);
+
     // Auth management - Redirect to login if not authenticated
     useEffect(() => {
         const checkAuth = async () => {
@@ -480,7 +488,11 @@ const WorkoutPlayer = () => {
 
     const saveWeight = (exoName: string, value: string) => {
         const val = parseFloat(value);
-        const newWeights = { ...weights, [exoName]: val };
+        // Save with precise session key for logging AND generic key for history
+        const currentSessionKey = `c${activeCycle}s${activeSessionIdx}`;
+        const specificKey = `${currentSessionKey}_${exoName}`;
+
+        const newWeights = { ...weights, [specificKey]: val, [exoName]: val };
         setWeights(newWeights);
         localStorage.setItem('velox_weights', JSON.stringify(newWeights));
 
@@ -491,6 +503,9 @@ const WorkoutPlayer = () => {
     const persistWeight = async (exoName: string, val: number) => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
+
+        // Use upsert to avoid duplicate history spam for same session
+        // For now simple insert is fine, maybe debounce in future
         await supabase.from('exercise_history').insert({
             user_id: user.id,
             exercise_name: exoName,
@@ -498,18 +513,25 @@ const WorkoutPlayer = () => {
         });
     };
 
-    const currentCycle = fullData[activeCycle] || fullData[1];
-    const currentSession = currentCycle?.sessions[activeSessionIdx] || currentCycle.sessions[0];
+    // Safe fallback for cycle and session data
+    const currentCycle = fullData[activeCycle] || fullData[1] || { sessions: [] };
+    const currentSession = currentCycle?.sessions?.[activeSessionIdx] || currentCycle?.sessions?.[0] || { exercises: [] };
 
     // Use AI-optimized session if available, otherwise use static fallback
     const displayedExercises = useMemo(() => {
         if (isExpressMode && expressSession?.exercises) {
             return expressSession.exercises;
         }
-        return getAdjustedExercises(currentSession.exercises, isExpressMode);
+        return getAdjustedExercises(currentSession?.exercises || [], isExpressMode);
     }, [currentSession, isExpressMode, expressSession]);
 
     const sessionKey = `c${activeCycle}s${activeSessionIdx}`;
+
+    // --- LOGIC FUNCTIONS ---
+    useEffect(() => {
+        // Load history for displayed exercises
+        // This could be enhanced to fetch from DB
+    }, [displayedExercises]);
 
     const toggleExercise = (exoName: string) => {
         const currentCompleted = completedExos[sessionKey] || [];
@@ -523,9 +545,11 @@ const WorkoutPlayer = () => {
         setCompletedExos({ ...completedExos, [sessionKey]: newCompleted });
     };
 
-    const startTimer = (seconds: number) => {
+    const startTimer = (duration: number) => {
+        const audio = new Audio('/beep.mp3'); // Optional
+        setTimer({ seconds: duration, initial: duration, isRunning: true, active: true });
+
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        setTimer({ seconds, initial: seconds, isRunning: true, active: true });
 
         timerIntervalRef.current = setInterval(() => {
             setTimer(prev => {
@@ -585,7 +609,7 @@ const WorkoutPlayer = () => {
         setShowFinishModal(true);
     };
 
-    const confirmFinishSession = () => {
+    const confirmFinishSession = async () => {
         setShowFinishModal(false);
 
         // Calculate actual duration
@@ -631,10 +655,10 @@ const WorkoutPlayer = () => {
                     name: exo.name,
                     sets: exo.sets || 3, // Default fallback
                     reps: exo.reps || "10",
-                    weight: weights[`${sessionKey}_${exo.name}`] || 0
+                    weight: weights[`${sessionKey}_${exo.name}`] || weights[exo.name] || 0
                 }));
 
-            supabase.from('workout_logs').insert({
+            await supabase.from('workout_logs').insert({
                 user_id: user.id,
                 session_name: currentSession.name,
                 duration_minutes: durationMinutes || 1,
@@ -801,26 +825,16 @@ const WorkoutPlayer = () => {
                                 </div>
                             </div>
 
-                            {/* Boss Fight HP Bar */}
+                            {/* Progress Bar - Minimal */}
                             {displayedExercises.length > 0 && (
-                                <div className="relative">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-lg">{progress >= 100 ? '💀' : '🐉'}</span>
-                                        <span className="text-xs font-bold text-slate-500">
-                                            {progress >= 100 ? 'BOSS VAINCU!' : `BOSS HP: ${100 - progress}%`}
-                                        </span>
-                                    </div>
-                                    <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden shadow-inner">
-                                        <div
-                                            className={`h-full transition-all duration-700 ease-out ${progress >= 100
-                                                ? 'bg-gradient-to-r from-emerald-400 to-teal-500'
-                                                : progress >= 70
-                                                    ? 'bg-gradient-to-r from-yellow-400 to-amber-500'
-                                                    : 'bg-gradient-to-r from-red-500 to-rose-600'
-                                                }`}
-                                            style={{ width: `${100 - progress}%` }}
-                                        ></div>
-                                    </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                                    <div
+                                        className={`h-full transition-all duration-700 ease-out ${progress >= 100
+                                            ? 'bg-gradient-to-r from-emerald-400 to-teal-500'
+                                            : 'bg-gradient-to-r from-indigo-500 to-violet-500'
+                                            }`}
+                                        style={{ width: `${progress}%` }}
+                                    />
                                 </div>
                             )}
                         </>
@@ -998,21 +1012,30 @@ const WorkoutPlayer = () => {
 
             {/* SAVE BUTTON BAR - Above BottomNav */}
             {activeTab === 'workout' && (
-                <div className="fixed bottom-20 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-slate-200 p-4 pb-4 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                    <div className="max-w-md mx-auto flex gap-3">
-                        <div className="flex-1 flex flex-col justify-center">
-                            <div className="text-[10px] text-slate-400 uppercase font-bold text-center mb-0.5">Durée estimée</div>
-                            <div className="text-center font-black text-xl text-slate-800 leading-none">
-                                {isExpressMode ? '~55m' : '~1h25'}
+                <div className="fixed bottom-[88px] left-4 right-4 z-30 animate-in slide-in-from-bottom-10 fade-in duration-500">
+                    <div className="max-w-md mx-auto bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl border border-white/20 shadow-2xl shadow-indigo-500/20 rounded-3xl p-3 flex items-center gap-4 pr-3">
+                        {/* Info Block */}
+                        <div className="flex-1 pl-2">
+                            <div className="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold mb-0.5">Durée Est.</div>
+                            <div className="flex items-baseline gap-1.5">
+                                <span className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">
+                                    {isExpressMode ? '~55' : '~1h25'}
+                                </span>
+                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500">min</span>
                             </div>
                         </div>
+
+                        {/* Action Button */}
                         <button
                             onClick={handleFinishSession}
                             disabled={progress < 20}
-                            className={`flex-[2] rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg py-3.5 ${progress >= 90 ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:opacity-90 text-white shadow-indigo-500/30' : 'bg-slate-900 text-white shadow-slate-900/20'}`}
+                            className={`h-12 px-6 rounded-2xl font-bold flex items-center gap-2.5 transition-all active:scale-95 shadow-lg shadow-indigo-500/20 text-white ${progress >= 90
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:shadow-emerald-500/40'
+                                : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:shadow-indigo-500/40'
+                                }`}
                         >
-                            {progress >= 90 ? <Trophy size={20} className="animate-bounce" /> : <Save size={20} />}
-                            {progress >= 90 ? "Valider la séance !" : "Enregistrer"}
+                            {progress >= 90 ? <Trophy size={18} className="animate-bounce" /> : <Save size={18} />}
+                            <span className="text-sm">{progress >= 90 ? "Terminer" : "Sauver"}</span>
                         </button>
                     </div>
                 </div>
@@ -1166,8 +1189,32 @@ const WorkoutPlayer = () => {
                     />
                 </div>
             )}
+            {activeTab === 'library' && (
+                <div className="pb-24 animate-in slide-in-from-right duration-500">
+                    <ProgramPanel
+                        fullData={fullData}
+                        activeCycle={activeCycle}
+                        activeSessionIdx={activeSessionIdx}
+                        user={user}
+                        initialTab="library"
+                        onSelectCycle={(idx) => {
+                            setActiveCycle(idx);
+                            setActiveSessionIdx(0);
+                            localStorage.setItem('velox_cycle', idx.toString());
+                            localStorage.setItem('velox_session', '0');
+                        }}
+                        onSelectSession={(idx) => {
+                            setActiveSessionIdx(idx);
+                            setActiveTab('workout');
+                            localStorage.setItem('velox_session', idx.toString());
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        onUpdateData={setFullData}
+                        onReset={() => { }}
+                    />
+                </div>
+            )}
             {activeTab === 'stats' && <AnalyticsPanel user={user} />}
-            {activeTab === 'challenges' && <ChallengesPanel user={user} />}
             {activeTab === 'profile' && <ProfilePanel user={user} />}
 
             {/* IMPORTER MODAL */}

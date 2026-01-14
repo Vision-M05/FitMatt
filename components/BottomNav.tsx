@@ -1,10 +1,10 @@
 'use client';
 
 import React from 'react';
-import { Dumbbell, BarChart3, Target, User, Gift, Notebook } from 'lucide-react';
+import { Dumbbell, BarChart3, Target, User, Notebook, BookOpen } from 'lucide-react';
 import feedback from '@/utils/haptics';
 
-export type TabType = 'workout' | 'program' | 'stats' | 'challenges' | 'profile';
+export type TabType = 'workout' | 'program' | 'library' | 'stats' | 'challenges' | 'profile';
 
 interface BottomNavProps {
     activeTab: TabType;
@@ -14,9 +14,9 @@ interface BottomNavProps {
 
 const tabs: { id: TabType; icon: typeof Dumbbell; label: string }[] = [
     { id: 'workout', icon: Dumbbell, label: 'Workout' },
-    { id: 'program', icon: Notebook, label: 'Cycle' },
+    { id: 'program', icon: Notebook, label: 'Programme' },
+    { id: 'library', icon: BookOpen, label: 'Création' },
     { id: 'stats', icon: BarChart3, label: 'Stats' },
-    { id: 'challenges', icon: Target, label: 'Défis' },
     { id: 'profile', icon: User, label: 'Profil' },
 ];
 

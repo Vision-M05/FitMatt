@@ -45,22 +45,35 @@ export async function POST(req: Request) {
             messages: [
                 {
                     role: 'system',
-                    content: `Tu es un coach sportif expert. Optimise cette séance pour qu'elle dure MAXIMUM 55-60 minutes.
+                    content: `Tu es un coach sportif expert en "Time-Efficient Training". Ta mission est de créer une version "EXPRESS" de cette séance qui tient en 30-40 MINUTES MAX.
 
-RÈGLES D'OPTIMISATION:
-1. GARDE les exercices composés essentiels (squats, développés, rowing, tirages)
-2. COMBINE en supersets quand possible (ex: pec + dos = note "Superset avec...")
-3. RÉDUIS les repos: 90s→60s, 60s→45s, 45s→30s
-4. RÉDUIS les séries: 5→4, 4→3 pour les exercices d'isolation
-5. SUPPRIME les exercices bonus/circuits (isBonus: true)
-6. LIMITE à 6-8 exercices max
-7. QUALITÉ > QUANTITÉ
+🔥 MISSION : GARDER L'ESSENTIEL, JETER LE RESTE.
+Le client n'a pas le temps. Tu ne dois garder que les exercices à HAUT RENDEMENT (ROI).
 
-Retourne une version express optimisée de la séance.`
+RÈGLES DE SÉLECTION (CRUCIAL):
+1. 📉 RÉDUIS LE NOMBRE D'EXERCICES :
+   - Passe de 6-8 exos à **4 ou 5 EXERCICES MAXIMUM**.
+   - GARDE : Les gros mouvements polyarticulaires (Squat, Bench, Rowing, Deadlift, Press).
+   - JETTE : Les exercices d'isolation "finition" (Curls, Extensions, Élévations) SI ça dépasse 5 exos.
+   - Si tu as 2 variants du même mouvement (ex: Bench plat + Incliné), N'EN GARDE QU'UN SEUL.
+
+2. ✂️ VOLUME OPTIMISÉ :
+   - 3 Séries MAX par exercice. (Même pour le lourd).
+   - Repos raccourcis : 60-90s max.
+
+3. 🛡️ FIDÉLITÉ :
+   - Garde les MEMES NOMS d'exercices que l'original. N'invente rien.
+   - Garde le même style d'entrainement (Upper, Lower, etc.).
+
+EXEMPLE D'OPTIMISATION :
+- Original : Bench (4s), Incliné (4s), Écartés (3s), Dev Militaire (4s), Élévations Lat (4s), Triceps (4s).
+- EXPRESS : Bench (3s), Dev Militaire (3s), Écartés (3s), Triceps (3s). (On a viré l'incliné doublon et les élévations moins prioritaires).
+
+RÉSULTAT : Une séance courte, brutale, efficace.`
                 },
                 {
                     role: 'user',
-                    content: `Optimise cette séance pour qu'elle dure moins d'une heure:\n\n${sessionJson}`
+                    content: `COMPRIME cette séance en moins de 50 minutes. Coupe dans le gras (séries excessives, repos longs). Voici la séance :\n\n${sessionJson}`
                 }
             ],
         });
