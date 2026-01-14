@@ -10,11 +10,6 @@ export default async function Home() {
     <main className="min-h-screen bg-slate-50 font-sans">
       {/* The WorkoutPlayer handles the entire UI header/layout itself now */}
       <WorkoutPlayer />
-
-      {/* Hidden Importer for future use or can be moved to a settings modal */}
-      <div className="hidden">
-        <ProgramImporter />
-      </div>
     </main>
   );
 }

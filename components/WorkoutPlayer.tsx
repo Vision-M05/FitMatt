@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     Dumbbell, Clock, Info, Zap,
     CheckCircle2, X, ChevronRight, Trophy, Save, History,
-    Calendar, Menu, BarChart3, Settings, Flame, Activity, Gift, Target, RefreshCcw
+    Calendar, Menu, BarChart3, Settings, Flame, Activity, Gift, Target, RefreshCcw, Sparkles
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { Program } from '@/types';
@@ -16,6 +16,7 @@ import ProgramPanel from './ProgramPanel';
 import AnalyticsPanel from './AnalyticsPanel';
 import ChallengesPanel from './ChallengesPanel';
 import ProfilePanel from './ProfilePanel';
+import ProgramImporter from './ProgramImporter';
 import type { User } from '@supabase/supabase-js';
 import { useTheme } from '@/contexts/ThemeContext';
 import feedback from '@/utils/haptics';
@@ -304,6 +305,7 @@ const WorkoutPlayer = () => {
     const [expressSession, setExpressSession] = useState<any>(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
+    const [showImporter, setShowImporter] = useState(false);
 
     const [showDailySpin, setShowDailySpin] = useState(false);
     const [showChallenges, setShowChallenges] = useState(false);
@@ -774,6 +776,14 @@ const WorkoutPlayer = () => {
                                 ) : (
                                     <Zap size={18} fill={isExpressMode ? "currentColor" : "none"} />
                                 )}
+                            </button>
+
+                            <button
+                                onClick={() => setShowImporter(true)}
+                                className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 active:scale-90 transition-all duration-300"
+                                title="Importer / Générer un programme"
+                            >
+                                <Sparkles size={18} className="text-indigo-600" />
                             </button>
 
                             <button
@@ -1248,6 +1258,21 @@ const WorkoutPlayer = () => {
             {activeTab === 'stats' && <AnalyticsPanel user={user} />}
             {activeTab === 'challenges' && <ChallengesPanel user={user} />}
             {activeTab === 'profile' && <ProfilePanel user={user} />}
+
+            {/* IMPORTER MODAL */}
+            {showImporter && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto relative animate-pop no-scrollbar">
+                        <button
+                            onClick={() => setShowImporter(false)}
+                            className="absolute top-6 right-6 z-10 p-2 bg-white/80 backdrop-blur text-slate-500 rounded-full hover:bg-white hover:text-red-500 transition-all shadow-sm border border-slate-200"
+                        >
+                            <X size={20} />
+                        </button>
+                        <ProgramImporter />
+                    </div>
+                </div>
+            )}
 
             {/* BOTTOM NAVIGATION */}
             <BottomNav
