@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     Dumbbell, Clock, Info, Zap,
     CheckCircle2, X, ChevronRight, Trophy, Save, History,
-    Calendar, Menu, BarChart3, Settings, Flame, Activity, Gift, Target, RefreshCcw, Sparkles
+    Calendar, Menu, BarChart3, Flame, Activity, Gift, Target, RefreshCcw, Sparkles
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { Program } from '@/types';
@@ -18,7 +18,7 @@ import ChallengesPanel from './ChallengesPanel';
 import ProfilePanel from './ProfilePanel';
 import ProgramImporter from './ProgramImporter';
 import type { User } from '@supabase/supabase-js';
-import { useTheme } from '@/contexts/ThemeContext';
+
 import feedback from '@/utils/haptics';
 
 // --- CUSTOM STYLES & ANIMATIONS ---
@@ -297,13 +297,13 @@ const Confetti = () => (
 
 // --- MAIN COMPONENT ---
 const WorkoutPlayer = () => {
-    const { isDark, toggleTheme } = useTheme();
+
     const [activeCycle, setActiveCycle] = useState(1);
     const [activeSessionIdx, setActiveSessionIdx] = useState(0);
     const [isExpressMode, setIsExpressMode] = useState(false);
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [expressSession, setExpressSession] = useState<any>(null);
-    const [showSettings, setShowSettings] = useState(false);
+
     const [showConfetti, setShowConfetti] = useState(false);
     const [showImporter, setShowImporter] = useState(false);
 
@@ -786,12 +786,7 @@ const WorkoutPlayer = () => {
                                 <Sparkles size={18} className="text-indigo-600" />
                             </button>
 
-                            <button
-                                onClick={() => setShowSettings(!showSettings)}
-                                className="p-2 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 active:rotate-90 transition-all duration-300"
-                            >
-                                <Settings size={18} />
-                            </button>
+
                         </div>
                     </div>
 
@@ -834,89 +829,7 @@ const WorkoutPlayer = () => {
                     )}
                 </div>
 
-                {showSettings && (
-                    <div className="bg-slate-50 border-t border-slate-200 animate-slide-up">
-                        <div className="max-w-md mx-auto p-4 space-y-4">
 
-
-                            {/* DARK MODE TOGGLE */}
-                            <div className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-xl p-3 border border-slate-200 dark:border-slate-700">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
-                                        {isDark ? '🌙' : '☀️'}
-                                    </div>
-                                    <span className="font-bold text-slate-700 dark:text-slate-200">Mode {isDark ? 'Sombre' : 'Clair'}</span>
-                                </div>
-                                <button
-                                    onClick={toggleTheme}
-                                    className={`w-14 h-8 rounded-full transition-all duration-300 ${isDark ? 'bg-indigo-600' : 'bg-slate-300'}`}
-                                >
-                                    <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${isDark ? 'translate-x-7' : 'translate-x-1'}`} />
-                                </button>
-                            </div>
-
-                            <div>
-                                <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Changer de Cycle</h3>
-                                <div className="grid grid-cols-4 gap-2">
-                                    {Object.keys(fullData).map(k => {
-                                        const c = parseInt(k);
-                                        const isAI = c === 0;
-                                        return (
-                                            <button
-                                                key={c}
-                                                onClick={() => { setActiveCycle(c); setActiveSessionIdx(0); setShowSettings(false); }}
-                                                className={`py-2 rounded-lg font-bold text-sm border transition-all active:scale-95 ${activeCycle === c ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200'}`}
-                                            >
-                                                {isAI ? 'IA' : `C${c}`}
-                                            </button>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-                            <div>
-                                <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Changer de Séance</h3>
-                                <div className="flex flex-col gap-2">
-                                    {currentCycle.sessions.map((sess: any, idx: number) => (
-                                        <button
-                                            key={idx}
-                                            onClick={() => { setActiveSessionIdx(idx); setShowSettings(false); }}
-                                            className={`px-4 py-3 rounded-lg text-left text-sm font-bold border flex justify-between items-center transition-all active:scale-[0.98] ${activeSessionIdx === idx ? 'bg-white border-indigo-500 shadow-sm ring-1 ring-indigo-500' : 'bg-white border-slate-200'}`}
-                                        >
-                                            <span>{sess.name}</span>
-                                            {activeSessionIdx === idx && <CheckCircle2 size={16} className="text-indigo-600" />}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* USER INFO & LOGOUT */}
-                            {user && (
-                                <div className="pt-4 border-t border-slate-200">
-                                    <div className="flex items-center justify-between bg-white rounded-xl p-3 border border-slate-200">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">
-                                                {user.email?.charAt(0).toUpperCase()}
-                                            </div>
-                                            <div>
-                                                <div className="text-xs text-slate-400 font-medium">Connecté</div>
-                                                <div className="text-sm font-bold text-slate-700 truncate max-w-[150px]">{user.email}</div>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={async () => {
-                                                await supabase.auth.signOut();
-                                                window.location.href = '/login';
-                                            }}
-                                            className="px-3 py-2 bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-500 text-xs font-bold rounded-lg transition-colors"
-                                        >
-                                            Déconnexion
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
             </header>
 
             {/* EXERCISES LIST - Only show on workout tab */}
