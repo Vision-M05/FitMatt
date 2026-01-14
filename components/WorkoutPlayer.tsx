@@ -6,7 +6,7 @@ import {
     CheckCircle2, X, ChevronRight, Trophy, Save, History,
     Calendar, Menu, BarChart3, Flame, Activity, Gift, Target, RefreshCcw, Sparkles
 } from 'lucide-react';
-import { formatSessionTime } from '@/utils/formatTime';
+import { formatSessionTime } from '../utils/formatTime';
 import { calculateSessionDuration } from '@/utils/duration';
 import { createClient } from '@/utils/supabase/client';
 import { Program } from '@/types';
@@ -644,11 +644,7 @@ const WorkoutPlayer = () => {
         setSessionElapsed(0);
     };
 
-    const formatSessionTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    };
+
 
     // Finish Session Logic
     const [showFinishModal, setShowFinishModal] = useState(false);
