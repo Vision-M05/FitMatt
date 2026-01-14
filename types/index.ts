@@ -17,6 +17,7 @@ export interface Session {
 }
 
 export interface Program {
+    id?: string;
     title: string;
     description: string;
     sessions: Session[];

@@ -332,83 +332,110 @@ const WorkoutPlayer = () => {
 
     const supabase = createClient();
 
-    // Handle Express Mode Toggle with AI Optimization + Database Storage
-    const handleExpressToggle = async (forceRegenerate = false) => {
-        // Create a unique key that includes cycle, session index, and session name (sanitized)
-        const sessionName = currentSession?.name?.replace(/[^a-zA-Z0-9]/g, '_') || `session${activeSessionIdx}`;
-        const sessionKey = `c${activeCycle}_${sessionName}`;
+    // Safe fallback for cycle and session data
+    const currentCycle = fullData[activeCycle] || fullData[1] || { sessions: [] };
+    const currentSession = currentCycle?.sessions?.[activeSessionIdx] || currentCycle?.sessions?.[0] || { exercises: [] };
 
-        if (isExpressMode && !forceRegenerate) {
-            // Turn OFF express mode
-            setIsExpressMode(false);
-            setExpressSession(null);
-            return;
-        }
+    // Robust Session Key: Use UUID if available (AI programs), else safe fallback
+    const sessionKey = useMemo(() => {
+        if (currentCycle.id) return `prog_${currentCycle.id}_s${activeSessionIdx}`;
+        return `c${activeCycle}s${activeSessionIdx}`;
+    }, [activeCycle, activeSessionIdx, currentCycle.id]);
 
-        // Check database first (unless forcing regeneration)
-        if (!forceRegenerate && user) {
-            const { data: existingExpress } = await supabase
-                .from('express_sessions')
-                .select('express_session')
-                .eq('user_id', user.id)
-                .eq('session_key', sessionKey)
-                .single();
+    // --- SMART BOOST MODE LOGIC ---
+    const [boostEnabled, setBoostEnabled] = useState(false);
 
-            if (existingExpress?.express_session) {
-                setExpressSession(existingExpress.express_session);
-                setIsExpressMode(true);
-                return;
-            }
-        }
+    // 1. Check or Fetch Express Session (Lazy Loading)
+    const loadExpressSession = async (forceRegenerate = false) => {
+        if (!user || !currentSession?.exercises?.length) return;
 
-        // Call AI to optimize
-        setIsOptimizing(true);
         try {
-            const res = await fetch('/api/optimize-session', {
+            setIsOptimizing(true);
+
+            // A. Check Local Cache (Supabase) FIRST - Zero Waste
+            if (!forceRegenerate) {
+                const { data: cached } = await supabase
+                    .from('express_sessions')
+                    .select('express_session')
+                    .eq('user_id', user.id)
+                    .eq('session_key', sessionKey)
+                    .maybeSingle();
+
+                if (cached) {
+                    console.log('⚡ Cache Hit: Loaded Boost from DB', sessionKey);
+                    setExpressSession(cached.express_session);
+                    setIsExpressMode(true);
+                    setIsOptimizing(false);
+                    return;
+                }
+            }
+
+            // B. Cache Miss -> Call API (Only if verified null or forced)
+            console.log('💨 Cache Miss: Generating Boost...', sessionKey);
+
+            const response = await fetch('/api/optimize-session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session: currentSession }),
+                body: JSON.stringify({
+                    session: currentSession,
+                    cycleId: activeCycle.toString(), // Kept for logging
+                    sessionIdx: activeSessionIdx,
+                    availableEquipment: ['Barbell', 'Dumbbell', 'Bodyweight', 'Machine'] // To be dynamic later
+                }),
             });
 
-            if (res.ok) {
-                const optimized = await res.json();
+            if (response.ok) {
+                const optimized = await response.json();
 
-                // Save to database (upsert - insert or update)
-                if (user) {
-                    await supabase
-                        .from('express_sessions')
-                        .upsert({
-                            user_id: user.id,
-                            session_key: sessionKey,
-                            original_session: currentSession,
-                            express_session: optimized,
-                            optimization_notes: optimized.optimizationNotes || null,
-                            estimated_duration: optimized.estimatedDuration || null,
-                            updated_at: new Date().toISOString()
-                        }, { onConflict: 'user_id,session_key' });
-                }
+                // C. Persist immediately to DB linked to THIS program ID
+                await supabase
+                    .from('express_sessions')
+                    .upsert({
+                        user_id: user.id,
+                        session_key: sessionKey,
+                        original_session: currentSession,
+                        express_session: optimized,
+                        optimization_notes: optimized.optimizationNotes || null,
+                        estimated_duration: optimized.estimatedDuration || null,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'user_id,session_key' });
 
                 setExpressSession(optimized);
                 setIsExpressMode(true);
             } else {
-                console.error('Optimization failed, using static fallback');
-                setIsExpressMode(true); // Fallback to static mode
+                console.error('Optimization API failed');
             }
         } catch (error) {
-            console.error('Express optimization error:', error);
-            setIsExpressMode(true); // Fallback to static mode
+            console.error('Express load error:', error);
         } finally {
             setIsOptimizing(false);
         }
     };
 
-    // Load imported program from Supabase and merge it as Cycle 5 (or import)
+    // Update handleExpressToggle to just toggle the PREFERENCE
+    const toggleBoostPreference = (forceRegen = false) => {
+        if (forceRegen && boostEnabled) {
+            loadExpressSession(true); // Force re-fetch while staying enabled
+        } else {
+            setBoostEnabled(!boostEnabled);
+        }
+    };
+
+    // Persistence on Program/Session Switch (User Rule 3)
+    useEffect(() => {
+        if (boostEnabled) {
+            loadExpressSession();
+        } else {
+            setIsExpressMode(false);
+        }
+    }, [activeCycle, activeSessionIdx, boostEnabled]); // Re-run on switch if enabled
+
+    // Load imported program from Supabase
     useEffect(() => {
         async function fetchAIProgram() {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
-            // Order by created_at desc to get the latest active one if multiple exist by mistake
             const { data } = await supabase
                 .from('programs')
                 .select('*')
@@ -419,17 +446,10 @@ const WorkoutPlayer = () => {
                 .maybeSingle();
 
             if (data && data.content) {
-                // We inject the AI program as "Cycle 0" or just add it to the list
-                // For now, let's replace Cycle 1 for immediate feedback if user has one
-                // OR strictly perform cleaner merge
                 const aiProgram = data.content as Program;
-
-                // Map AI program structure to our UI structure
-                // UI expects: { title, description, sessions: [] }
-                // Our DB Program matches this signature!
-
+                // Inject UUID for Robust Key
                 setFullData(prev => ({
-                    0: { ...aiProgram, title: `✨ ${aiProgram.title} (IA)` }, // ID 0 for custom
+                    0: { ...aiProgram, title: `✨ ${aiProgram.title} (IA)`, id: data.id },
                     ...prev
                 }));
 
@@ -456,18 +476,18 @@ const WorkoutPlayer = () => {
         }
     }, []);
 
-    // Reset Express mode when cycle or session changes
+    // Reset Express session details when context changes
     useEffect(() => {
-        setIsExpressMode(false);
-        setExpressSession(null);
+        if (!boostEnabled) {
+            setExpressSession(null);
+        }
     }, [activeCycle, activeSessionIdx]);
 
-    // Auth management - Redirect to login if not authenticated
+    // Auth management
     useEffect(() => {
         const checkAuth = async () => {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
-                // Redirect to login page
                 window.location.href = '/login';
                 return;
             }
@@ -489,8 +509,7 @@ const WorkoutPlayer = () => {
     const saveWeight = (exoName: string, value: string) => {
         const val = parseFloat(value);
         // Save with precise session key for logging AND generic key for history
-        const currentSessionKey = `c${activeCycle}s${activeSessionIdx}`;
-        const specificKey = `${currentSessionKey}_${exoName}`;
+        const specificKey = `${sessionKey}_${exoName}`;
 
         const newWeights = { ...weights, [specificKey]: val, [exoName]: val };
         setWeights(newWeights);
@@ -514,8 +533,7 @@ const WorkoutPlayer = () => {
     };
 
     // Safe fallback for cycle and session data
-    const currentCycle = fullData[activeCycle] || fullData[1] || { sessions: [] };
-    const currentSession = currentCycle?.sessions?.[activeSessionIdx] || currentCycle?.sessions?.[0] || { exercises: [] };
+    // (Defined above via useMemo/const in component scope)
 
     // Use AI-optimized session if available, otherwise use static fallback
     const displayedExercises = useMemo(() => {
@@ -525,7 +543,8 @@ const WorkoutPlayer = () => {
         return getAdjustedExercises(currentSession?.exercises || [], isExpressMode);
     }, [currentSession, isExpressMode, expressSession]);
 
-    const sessionKey = `c${activeCycle}s${activeSessionIdx}`;
+
+
 
     // --- LOGIC FUNCTIONS ---
     useEffect(() => {
@@ -789,16 +808,16 @@ const WorkoutPlayer = () => {
                             </div>
 
                             <button
-                                onClick={() => handleExpressToggle()}
-                                onContextMenu={(e) => { e.preventDefault(); handleExpressToggle(true); }}
+                                onClick={() => toggleBoostPreference()}
+                                onContextMenu={(e) => { e.preventDefault(); toggleBoostPreference(true); }}
                                 disabled={isOptimizing}
-                                title={isExpressMode ? "Désactiver Express (clic droit = régénérer)" : "Activer mode Express IA"}
-                                className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isExpressMode ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 rotate-12' : 'bg-slate-100 text-slate-400'} ${isOptimizing ? 'animate-pulse' : ''}`}
+                                title={boostEnabled ? "Désactiver Express (clic droit = régénérer)" : "Activer mode Express IA"}
+                                className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${boostEnabled ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-orange-200 rotate-12' : 'bg-slate-100 text-slate-400'} ${isOptimizing ? 'animate-pulse' : ''}`}
                             >
                                 {isOptimizing ? (
                                     <div className="w-[18px] h-[18px] border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
                                 ) : (
-                                    <Zap size={18} fill={isExpressMode ? "currentColor" : "none"} />
+                                    <Zap size={18} fill={boostEnabled ? "currentColor" : "none"} />
                                 )}
                             </button>
 
