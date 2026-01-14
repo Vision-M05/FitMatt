@@ -6,6 +6,8 @@ import {
     CheckCircle2, X, ChevronRight, Trophy, Save, History,
     Calendar, Menu, BarChart3, Flame, Activity, Gift, Target, RefreshCcw, Sparkles
 } from 'lucide-react';
+import { formatSessionTime } from '@/utils/formatTime';
+import { calculateSessionDuration } from '@/utils/duration';
 import { createClient } from '@/utils/supabase/client';
 import { Program } from '@/types';
 
@@ -867,6 +869,10 @@ const WorkoutPlayer = () => {
                                 <div>
                                     <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{currentCycle.title || `Cycle ${activeCycle}`}</div>
                                     <div className="text-lg font-bold text-slate-800 leading-tight">{currentSession.name}</div>
+                                    <div className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-1">
+                                        <span>⏱️ {calculateSessionDuration(currentSession)} min</span>
+                                        {/* If we have weights saved, maybe show total volume? Optional */}
+                                    </div>
                                 </div>
                                 <div className="text-right">
                                     <span className="text-2xl font-black text-indigo-600 transition-all duration-500">{progress}%</span>

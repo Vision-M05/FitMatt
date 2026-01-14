@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Reorder, AnimatePresence, motion } from 'framer-motion';
 import { createClient } from '@/utils/supabase/client';
+import { calculateSessionDuration } from '@/utils/duration';
 
 interface ProgramPanelProps {
     fullData: any;
@@ -357,7 +358,7 @@ export default function ProgramPanel({
                                                     </span>
                                                     <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></span>
                                                     <span className="text-[10px] text-slate-400 font-medium">
-                                                        {session.exercises.length} exercices
+                                                        ⏱️ {calculateSessionDuration(session)} min • {session.exercises.length} exos
                                                     </span>
                                                 </div>
 
@@ -488,6 +489,9 @@ export default function ProgramPanel({
                                                     <Calendar size={12} className="text-slate-400" />
                                                     <span className="text-[11px] text-slate-400">
                                                         {new Date(prog.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                    </span>
+                                                    <span className="text-[11px] text-slate-400 ml-2 border-l border-slate-300 pl-2">
+                                                        ~{Math.round(prog.content?.sessions?.reduce((acc: number, s: any) => acc + calculateSessionDuration(s), 0) / (prog.content?.sessions?.length || 1)) || 45} min
                                                     </span>
                                                     {!prog.is_active && !isEditing && (
                                                         <span className="text-[10px] text-slate-300 ml-auto">← Glisser pour supprimer</span>
