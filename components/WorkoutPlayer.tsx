@@ -731,7 +731,7 @@ const WorkoutPlayer = () => {
     }, [nextWorkoutDate]);
 
     return (
-        <div className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans pb-40 select-none transition-colors duration-300">
+        <div className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans pb-48 select-none transition-colors duration-300">
             <style>{styles}</style>
             {showConfetti && <Confetti />}
 
@@ -785,8 +785,6 @@ const WorkoutPlayer = () => {
                             >
                                 <Sparkles size={18} className="text-indigo-600" />
                             </button>
-
-
                         </div>
                     </div>
 
