@@ -342,8 +342,24 @@ const WorkoutPlayer = () => {
         return `c${activeCycle}s${activeSessionIdx}`;
     }, [activeCycle, activeSessionIdx, currentCycle.id]);
 
-    // --- SMART BOOST MODE LOGIC ---
-    const [boostEnabled, setBoostEnabled] = useState(false);
+    // --- SMART BOOST MODE LOGIC (Per-Program Isolation) ---
+    // Key: programId (or cycle index for static) -> boolean
+    const [boostStates, setBoostStates] = useState<Record<string, boolean>>({});
+
+    // 1. Initialize Boost States from LocalStorage
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const savedStates = localStorage.getItem('velox_boost_states');
+            if (savedStates) {
+                setBoostStates(JSON.parse(savedStates));
+            }
+        }
+    }, []);
+
+    // 2. Compute Unique Program Key (ID or Index)
+    const programKey = useMemo(() => {
+        return currentCycle.id ? `prog_${currentCycle.id}` : `static_c${activeCycle}`;
+    }, [activeCycle, currentCycle.id]);
 
     // 1. Check or Fetch Express Session (Lazy Loading)
     const loadExpressSession = async (forceRegenerate = false) => {
@@ -412,23 +428,41 @@ const WorkoutPlayer = () => {
         }
     };
 
-    // Update handleExpressToggle to just toggle the PREFERENCE
+    // 4. Toggle Function (Updates State Map)
     const toggleBoostPreference = (forceRegen = false) => {
-        if (forceRegen && boostEnabled) {
-            loadExpressSession(true); // Force re-fetch while staying enabled
+        const isCurrentlyBoosted = boostStates[programKey] || false;
+        const newStatus = !isCurrentlyBoosted;
+
+        // Update Local State Map
+        const newStates = { ...boostStates, [programKey]: newStatus };
+        setBoostStates(newStates);
+        localStorage.setItem('velox_boost_states', JSON.stringify(newStates));
+
+        if (newStatus || forceRegen) {
+            // Turning ON or Regenerating
+            loadExpressSession(forceRegen);
         } else {
-            setBoostEnabled(!boostEnabled);
+            // Turning OFF
+            setIsExpressMode(false);
+            setExpressSession(null);
         }
     };
 
-    // Persistence on Program/Session Switch (User Rule 3)
+    // 3. Effect: Handle Program Switch (Rules 1, 2, 3)
     useEffect(() => {
-        if (boostEnabled) {
+        const shouldBeBoosted = boostStates[programKey] || false;
+
+        if (shouldBeBoosted) {
+            // Rule 2: "Je reviens sur Prog A... récupérer version 60min"
             loadExpressSession();
         } else {
+            // Rule 3: "Je passe sur Prog B (jamais boosté)... Bouton décoché"
+            // Nettoyage mémoire immédiat
             setIsExpressMode(false);
+            setExpressSession(null);
+            setIsOptimizing(false);
         }
-    }, [activeCycle, activeSessionIdx, boostEnabled]); // Re-run on switch if enabled
+    }, [programKey, activeSessionIdx]); // Re-run when Program OR Session changes
 
     // Load imported program from Supabase
     useEffect(() => {
@@ -476,12 +510,7 @@ const WorkoutPlayer = () => {
         }
     }, []);
 
-    // Reset Express session details when context changes
-    useEffect(() => {
-        if (!boostEnabled) {
-            setExpressSession(null);
-        }
-    }, [activeCycle, activeSessionIdx]);
+
 
     // Auth management
     useEffect(() => {
@@ -811,13 +840,13 @@ const WorkoutPlayer = () => {
                                 onClick={() => toggleBoostPreference()}
                                 onContextMenu={(e) => { e.preventDefault(); toggleBoostPreference(true); }}
                                 disabled={isOptimizing}
-                                title={boostEnabled ? "Désactiver Express (clic droit = régénérer)" : "Activer mode Express IA"}
-                                className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${boostEnabled ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-orange-200 rotate-12' : 'bg-slate-100 text-slate-400'} ${isOptimizing ? 'animate-pulse' : ''}`}
+                                title={boostStates[programKey] ? "Désactiver Express (clic droit = régénérer)" : "Activer mode Express IA"}
+                                className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${boostStates[programKey] ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-orange-200 rotate-12' : 'bg-slate-100 text-slate-400'} ${isOptimizing ? 'animate-pulse' : ''}`}
                             >
                                 {isOptimizing ? (
                                     <div className="w-[18px] h-[18px] border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
                                 ) : (
-                                    <Zap size={18} fill={boostEnabled ? "currentColor" : "none"} />
+                                    <Zap size={18} fill={boostStates[programKey] ? "currentColor" : "none"} />
                                 )}
                             </button>
 
